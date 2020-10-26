@@ -23,7 +23,7 @@ sidebar <- dashboardSidebar(
     menuSubItem("João Gustavo"),
     menuItem(""),
     menuItem("Especificações", icon = icon("info")),
-    menuSubItem("Overshoot (%) 5"),
+    menuSubItem("Overshoot (%) 10"),
     menuSubItem("Acomodação (s) 60")
   )
 )
@@ -56,6 +56,12 @@ body <- dashboardBody(
                 title = "Arquivo com amostras", width = '100%', solidHeader = TRUE, status = "primary",
                 fileInput("amostras", "Amostras", multiple = FALSE, width = '100%')
               )
+            ),
+            
+            fluidRow(
+              infoBoxOutput("kpBox"),
+              infoBoxOutput("kiBox"),
+              infoBoxOutput("kdBox")
             ),
             
             fluidRow(
@@ -338,6 +344,28 @@ server <- function(input, output) {
     
     ggplotly(p)
     
+  })
+  
+  output$kpBox <- renderInfoBox({
+    if (is.null(input$amostras))
+      infoBox("Kp", "---", icon = icon("cog"), fill=TRUE)
+    else
+      infoBox("Kp", 6, icon = icon("cog"), fill=TRUE)
+  })
+  
+  
+  output$kiBox <- renderInfoBox({
+    if (is.null(input$amostras))
+      infoBox("Ki", "---", icon = icon("cog"), fill=TRUE)
+    else
+      infoBox("Ki", 0.34, icon = icon("cog"), fill=TRUE)
+  })
+  
+  output$kdBox <- renderInfoBox({
+    if (is.null(input$amostras))
+      infoBox("Kd", "---", icon = icon("cog"), fill=TRUE)
+    else
+      infoBox("Kd", 0.2, icon = icon("cog"), fill=TRUE)
   })
   
 }

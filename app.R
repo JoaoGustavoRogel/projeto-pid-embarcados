@@ -5,6 +5,9 @@ library(dplyr)
 library(R.matlab)
 library(matlib)
 library(control)
+library(plotly)
+
+source("functions.R")
 
 skin <- Sys.getenv("DASHBOARD_SKIN")
 skin <- tolower(skin)
@@ -14,7 +17,14 @@ if (skin == "")
 
 sidebar <- dashboardSidebar(
   sidebarMenu(
-    menuItem("PID", tabName = "dashboard", icon = icon("dashboard"))
+    menuItem("PID", tabName = "dashboard", icon = icon("dashboard")),
+    menuItem("Equipe 7", icon = icon("user-friends")),
+    menuSubItem("André Fillipi"),
+    menuSubItem("João Gustavo"),
+    menuItem(""),
+    menuItem("Especificações", icon = icon("info")),
+    menuSubItem("Overshoot (%) 5"),
+    menuSubItem("Acomodação (s) 60")
   )
 )
 
@@ -35,57 +45,39 @@ body <- dashboardBody(
                   htmlOutput("informacoes")
                 ),
                 tabPanel("Mínimos Quadrados",
-                         plotOutput("min_quad", heigh = 240)
+                         plotOutput("min_quad", height = 240)
                 )
               )
             ),
             
-            # Boxes with solid headers
+            
             fluidRow(
               box(
                 title = "Arquivo com amostras", width = '100%', solidHeader = TRUE, status = "primary",
                 fileInput("amostras", "Amostras", multiple = FALSE, width = '100%')
               )
+            ),
+            
+            fluidRow(
+              tabBox(
+                height = 440,
+                width = '100%',
+                tabPanel("Resposta Malha Aberta",
+                         plotlyOutput("plot_malha_aberta", height = 440)
+                ),
+                tabPanel("Resposta Malha Fechada",
+                         plotlyOutput("plot_malha_fechada", height = 440)
+                ),
+                tabPanel("Resposta Malha Fechada com Ganho",
+                         plotlyOutput("plot_malha_fechada_ganho", height = 440)
+                )
+              )
             )
+            
     )
   )
 )
 
-messages <- dropdownMenu(type = "messages",
-                         messageItem(
-                           from = "Sales Dept",
-                           message = "Sales are steady this month."
-                         ),
-                         messageItem(
-                           from = "New User",
-                           message = "How do I register?",
-                           icon = icon("question"),
-                           time = "13:45"
-                         ),
-                         messageItem(
-                           from = "Support",
-                           message = "The new server is ready.",
-                           icon = icon("life-ring"),
-                           time = "2014-12-01"
-                         )
-)
-
-notifications <- dropdownMenu(type = "notifications", badgeStatus = "warning",
-                              notificationItem(
-                                text = "5 new users today",
-                                icon("users")
-                              ),
-                              notificationItem(
-                                text = "12 items delivered",
-                                icon("truck"),
-                                status = "success"
-                              ),
-                              notificationItem(
-                                text = "Server load at 86%",
-                                icon = icon("exclamation-triangle"),
-                                status = "warning"
-                              )
-)
 
 tasks <- dropdownMenu(type = "tasks", badgeStatus = "success",
                       taskItem(value = 90, color = "green",
@@ -104,8 +96,6 @@ tasks <- dropdownMenu(type = "tasks", badgeStatus = "success",
 
 header <- dashboardHeader(
   title = "Projeto PID",
-  messages,
-  notifications,
   tasks
 )
 
@@ -215,11 +205,139 @@ server <- function(input, output) {
     
   })
   
-  output$scatter2 <- renderPlot({
-    spread <- as.numeric(input$spread) / 100
-    x <- rnorm(1000)
-    y <- x + rnorm(1000) * spread
-    plot(x, y, pch = ".", col = "red")
+  output$plot_malha_aberta <- renderPlotly({
+    if (is.null(input$amostras))
+      return()
+    
+    raw_base <- read.mat(input$amostras$datapath)
+    df_base <- data.frame("resp" = raw_base$resp0_3,
+                          "degrau" = raw_base$degrau0_3,
+                          "tempo" = raw_base$tempo0_3)
+    
+    ts = df_base$tempo[2] - df_base$tempo[1]
+    
+    dados <-  readMat(input$amostras$datapath)
+    
+    tempo <- dados[[3]]
+    degrau <- dados[[1]]
+    resp <- dados[[2]]
+    
+    size = length(tempo)
+    f <- cbind(resp[1, 1:size-1], degrau[1, 1:size-1])
+    j <- cbind(resp[1, 2:size])
+    m <- solve(t(f) %*% f) %*% t(f) %*% j
+    a1 <- m[[1]]
+    b1 <- m[[2]]
+    sys <- tf(b1, c(1, a1), Ts = ts)
+    
+    resp_malha_aberta <- control::step(sys)
+    
+    df_plot_malha_aberta <- data.frame(
+      "tempo" = resp_malha_aberta$t %>% as.vector(),
+      "resp" = resp_malha_aberta$y %>% as.vector()
+    )
+    
+    p <- ggplot(df_plot_malha_aberta, aes(x=tempo, y=resp)) + 
+      geom_line()
+    
+    ggplotly(p)
+  })
+  
+  output$plot_malha_fechada <- renderPlotly({
+    if (is.null(input$amostras))
+      return()
+    
+    raw_base <- read.mat(input$amostras$datapath)
+    df_base <- data.frame("resp" = raw_base$resp0_3,
+                          "degrau" = raw_base$degrau0_3,
+                          "tempo" = raw_base$tempo0_3)
+    
+    ts = df_base$tempo[2] - df_base$tempo[1]
+    
+    dados <-  readMat(input$amostras$datapath)
+    
+    tempo <- dados[[3]]
+    degrau <- dados[[1]]
+    resp <- dados[[2]]
+    
+    size <- length(tempo)
+    f <- cbind(resp[1, 1:size-1], degrau[1, 1:size-1])
+    j <- cbind(resp[1, 2:size])
+    m <- solve(t(f) %*% f) %*% t(f) %*% j
+    a1 <- m[[1]]
+    b1 <- m[[2]]
+    sys <- tf(b1, c(1, a1), Ts = ts)
+    
+    resp_malha_fechada <- get_resp(1, 0, 0, ts, size, a1, b1)
+    
+    df_plot_malha_fechada <- data.frame(
+      "resp" = resp_malha_fechada,
+      "tempo" = tempo %>% as.vector()
+    )
+    
+    p <- ggplot(df_plot_malha_fechada, aes(x=tempo, y=resp)) + 
+      geom_line()
+    
+    ggplotly(p)
+  })
+  
+  output$plot_malha_fechada_ganho <- renderPlotly({
+    if (is.null(input$amostras))
+      return()
+    
+    raw_base <- read.mat(input$amostras$datapath)
+    df_base <- data.frame("resp" = raw_base$resp0_3,
+                          "degrau" = raw_base$degrau0_3,
+                          "tempo" = raw_base$tempo0_3)
+    
+    ts = df_base$tempo[2] - df_base$tempo[1]
+    
+    dados <-  readMat(input$amostras$datapath)
+    
+    tempo <- dados[[3]]
+    degrau <- dados[[1]]
+    resp <- dados[[2]]
+    
+    size <- length(tempo)
+    f <- cbind(resp[1, 1:size-1], degrau[1, 1:size-1])
+    j <- cbind(resp[1, 2:size])
+    m <- solve(t(f) %*% f) %*% t(f) %*% j
+    a1 <- m[[1]]
+    b1 <- m[[2]]
+    sys <- tf(b1, c(1, a1), Ts = ts)
+    
+    found = FALSE
+    resp_malha_fechada_ganho <- NULL
+    
+    # operações com ganhos
+    for(kp in seq(from = 1, to = 10, by = 1)){
+      for(ki in seq(from = 0, to = 5, by = 0.01)){
+        kd <- 0.2
+        aux <- get_resp(kp, ki, kd, ts, size, a1, b1)
+        found <- (check_overshoot(aux, 0.1, size) && check_time(aux, tempo, 60, size, tempo))
+        if(found){
+          resp_malha_fechada_ganho <- aux
+          kp_f <- kp
+          ki_f <- ki
+          kd_f <- kd
+          break
+        }
+      }
+      if(found){
+        break
+      }
+    }
+
+    df_plot_malha_fechada_ganho <- data.frame(
+      "resp" = resp_malha_fechada_ganho,
+      "tempo" = tempo %>% as.vector()
+    )
+    
+    p <- ggplot(df_plot_malha_fechada_ganho, aes(x=tempo, y=resp)) + 
+      geom_line()
+    
+    ggplotly(p)
+    
   })
   
 }
